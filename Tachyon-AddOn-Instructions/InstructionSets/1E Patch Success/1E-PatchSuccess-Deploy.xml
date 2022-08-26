@@ -1,0 +1,163 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<InstructionDefinition Name="1E-PatchSuccess-Deploy" ReadablePayload="%action% patch(es) specified by %patchSpec% identifier(s) from %source% source to targeted device(s)" Description="Deploy or download only specific patch or patches to targeted devices." InstructionType="Action" InstructionTtlMinutes="10" ResponseTtlMinutes="10" Version="15" xmlns="http://schemas.1e.com/Tachyon/InstructionDefinition/1.0" Author="1E">
+  <Payload><![CDATA[@ver = Agent.GetSummary();
+@ext = Agent.GetExtensibility();
+
+@matchVer = select 1 where (SELECT 1 FROM @ext WHERE @ext.Name LIKE 'Patch') and (select 1 from @ver where compareversions(@ver.Version,"4.1.0.0") >= 0);
+IF NOT(@matchVer)
+    ERROR "This instruction is supported only on Windows operating systems with the 1E Client version 4.1 or greater";
+ENDIF;
+
+@downloadOnly = SELECT 1 WHERE "%action%" == "Download only" UNION ALL
+                SELECT 0 WHERE "%action%" == "Deploy";
+
+@source = SELECT CASE
+    WHEN UPPER("%source%") == "DEFAULT" THEN "%global:PatchSuccessSource%"
+    ELSE "%source%"
+END AS value;
+
+@status = Patch.GetStatus();
+
+@patchSourceOk = SELECT 1 FROM @status st
+    JOIN @source sr ON st.Source = UPPER(sr.value)
+    WHERE st.Configured = 1 AND st.Enabled = 1;
+IF NOT(@patchSourceOk)
+    ERROR "The patch source is not correctly configured or the patch source is not responding";
+ENDIF;
+
+// -- Deploy instruction should always use CheckOnline: true independent on global setting in order to be able to download required patch to install
+@deployedPatches = Patch.Deploy(Source: @source.value, PatchSpec:"%patchSpec%", CheckOnline:true, DownloadOnly: @downloadOnly, TimeoutSecs: %global:PatchSuccessDeployTimeoutSecs%);
+@installedPatches = Patch.List(Source: @source.value, CheckOnline:%global:PatchSuccessCheckOnline%, PatchSpec: "%patchSpec%", TimeoutSecs:%global:PatchSuccessListTimeoutSecs%);
+
+// -- Assume that the patch is "Installed successfully" if the list is not reporting anything
+SELECT
+    d.PatchSpec,
+    CASE
+        WHEN (d.DownloadOnly = 1 AND d.NeededDownload = 1 AND d.DownloadResult = 0)
+            OR i.Status = 'Downloaded'
+            THEN "Downloaded successfully"
+        WHEN (d.InstallResult IS NULL AND i.Status IS NULL)
+            OR (i.IsInstalled = 1 AND i.Status = 'Installation successful') 
+            OR (d.InstallResult = 0 AND d.RebootRequired = 0 AND i.Status != 'Installation successful pending reboot')
+            OR (d.InstallResult = 0 AND d.RebootRequired = 0 AND i.Status IS NULL)
+            THEN "Installed successfully"
+        WHEN (i.IsInstalled = 1 AND i.Status = 'Installation successful pending reboot')
+            OR (d.InstallResult = 0 AND d.RebootRequired = 1)
+            THEN "Installed successfully - pending reboot"
+        WHEN d.InstallResult IS NOT NULL AND d.InstallResult <> 0 AND d.InstallError != "" AND d.InstallError IS NOT NULL THEN "Failed - " || d.InstallError
+        WHEN d.InstallResult IS NOT NULL AND d.InstallResult <> 0 THEN "Failed - unspecified error occurred"
+        WHEN d.DownloadResult IS NOT NULL AND d.DownloadResult <> 0 AND d.DownloadError != "" AND d.DownloadError IS NOT NULL THEN "Download failed - " || d.DownloadError
+        WHEN d.DownloadResult IS NOT NULL AND d.DownloadResult <> 0 THEN "Download failed - unspecified error occurred"
+        WHEN d.InstallError IS NOT NULL AND d.InstallError != "" THEN "Failed - " || d.InstallError
+        WHEN d.DownloadError IS NOT NULL AND d.DownloadError != "" THEN "Download failed - " || d.DownloadError
+        ELSE "Failed - unhandled error"
+    END AS Status,
+    CASE
+        WHEN d.DownloadOnly = 1 AND d.DownloadResult = 0 THEN 1
+        ELSE 0
+    END AS IsDownloaded,
+    '%action%' as Operation,
+    i.Title as Title,
+    i.Source as Source
+FROM @deployedPatches d
+LEFT JOIN @installedPatches i
+    ON UPPER(d.PatchSpec) = UPPER(i.PatchGuid) OR UPPER(d.PatchSpec) = UPPER(i.PatchIds)
+    WHERE d.InstallResult IS NOT NULL OR i.Status IS NULL;
+]]></Payload>
+  <Comments>[Platform=Win,MinRel=4.0]</Comments>
+  <SchemaJson><![CDATA[[
+  {
+    "Name": "IsDownloaded",
+    "Type": "bool",
+    "Length": 0
+  },
+  {
+    "Name": "PatchSpec",
+    "Type": "string",
+    "Length": 128
+  },
+  {
+    "Name": "Status",
+    "Type": "string",
+    "Length": 4096
+  },
+  {
+    "Name": "Operation",
+    "Type": "string",
+    "Length": 64
+  },
+  {
+    "Name": "Title",
+    "Type": "string",
+    "Length": 200
+  },
+  {
+    "Name": "Source",
+    "Type": "string",
+    "Length": 16
+  }
+]]]></SchemaJson>
+  <ParameterJson><![CDATA[[
+  {
+    "Name": "patchSpec",
+    "Pattern": "%patchSpec%",
+    "DataType": "string",
+    "ControlType": "freeText",
+    "ControlMetadata": "",
+    "Placeholder": "",
+    "DefaultValue": "",
+    "Validation": {
+      "Regex": "^[0-9a-fA-F-]+(,[0-9a-fA-F-]+)*$",
+      "MaxLength": "",
+      "AllowedValues": []
+    },
+    "HintText": "Comma separated guids and/or KB numbers (without KB prefix) of patches to be installed",
+    "Source": ""
+  },
+  {
+    "Name": "action",
+    "Pattern": "%action%",
+    "DataType": "string",
+    "ControlType": "valuePicker",
+    "ControlMetadata": "",
+    "Placeholder": "Specify action: \"Deploy\" or \"Download only\" to be performed.",
+    "DefaultValue": "Download only",
+    "Validation": {
+      "Regex": "",
+      "MaxLength": "",
+      "AllowedValues": [
+        "Deploy",
+        "Download only"
+      ]
+    },
+    "HintText": "Controls if the patch is going to be downloaded only or installed",
+    "Source": ""
+  },
+  {
+    "Name": "source",
+    "Pattern": "%source%",
+    "DataType": "string",
+    "ControlType": "valuePicker",
+    "ControlMetadata": "",
+    "Placeholder": "",
+    "DefaultValue": "Default",
+    "Validation": {
+      "Regex": "",
+      "MaxLength": "",
+      "AllowedValues": [
+        "Default",
+        "WSUSR",
+        "WSUSL",
+        "SCCM"
+      ]
+    },
+    "HintText": "Controls the source from where the patch is going to be downloaded from",
+    "Source": ""
+  }
+]]]></ParameterJson>
+  <TaskGroups>
+    <TaskGroup Name="Operations\Operating System\Patching and Upgrades" />
+    <TaskGroup Name="Security\Patching" />
+  </TaskGroups>
+  <Workflow><![CDATA[{"StateMachine":"State with Approval"}]]></Workflow>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" /><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1" /><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1" /><DigestValue>htqMF6fAokkilCfLFj4HWZqfFPM=</DigestValue></Reference></SignedInfo><SignatureValue>Y2Ym6qmkWGcHF3Rq2T3wsjGzieV1XWulUDWY3J39/JshDAFnsInD4EE4WekSl1IrAMWrHyS+twjkjCMi07huW1NQtVwDV8481G7+8q76q75iVrBlp5gdKTfV1VZeU/lC22jn0LhVWI75q2jaXlAdIPu4LxcO0xuZ1a32Wjw9d12MOu8tsYyok8YedoGFTGmySLj/4MYP9QXvGYRy9Lse5Ily8vjIUKACP0+RyLhKAC6oUNU6Bb118f6ilGf4uumu29cxUf0isIFg+H+amC36/hFhD8B+kLNWFbWq2+sLjSrmuB5NMv62ELZ3FVE4tZBJQR0IY1EWnmlm+MBF5jrPQg==</SignatureValue><KeyInfo><X509Data><X509Certificate>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</X509Certificate></X509Data></KeyInfo></Signature></InstructionDefinition>

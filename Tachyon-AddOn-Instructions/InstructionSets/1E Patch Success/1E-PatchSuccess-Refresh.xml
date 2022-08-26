@@ -1,0 +1,163 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<InstructionDefinition Name="1E-PatchSuccess-Refresh" ReadablePayload="Returns patch status from %source% of given %patchSpec% identifier(s) for PatchSuccess consumption" Description="Returns patch status for all known patches to the device. Information is based on offline cache." InstructionType="Question" InstructionTtlMinutes="10" ResponseTtlMinutes="10" Version="15" xmlns="http://schemas.1e.com/Tachyon/InstructionDefinition/1.0" Author="1E">
+  <Payload><![CDATA[@ver = Agent.GetSummary();
+@ext = Agent.GetExtensibility();
+
+@matchVer = select 1 where (SELECT 1 FROM @ext WHERE @ext.Name LIKE 'Patch') and (select 1 from @ver where compareversions(@ver.Version,"4.1.0.0") >= 0);
+IF NOT(@matchVer)
+    ERROR "This instruction is supported only on Windows operating systems with the 1E Client version 4.1 or greater";
+ENDIF;
+
+@status = Patch.GetStatus();
+
+@source = SELECT CASE
+    WHEN UPPER("%source%") == "DEFAULT" THEN "%global:PatchSuccessSource%"
+    ELSE "%source%"
+END as value;
+
+@patchStatusOk = SELECT 1 FROM @status st WHERE st.Source = (select value from @source) AND st.Configured = 1 AND st.Enabled = 1;
+IF NOT(@patchStatusOk)
+    ERROR "The patch source is not correctly configured or the patch source is not responding";
+ENDIF;
+
+@listAll = SELECT 1 WHERE UPPER("%patchSpec%") == "ALL";
+
+IF (@listAll)
+
+    @patches = Patch.List(Source: @source.value, CheckOnline:%global:PatchSuccessCheckOnline%, TimeoutSecs:%global:PatchSuccessListTimeoutSecs%);
+    
+    SELECT
+        p.PatchIds AS KBArticle,
+        COALESCE(p.PatchGuid, p.PatchIds) AS PatchIdent,
+        CASE
+            WHEN p.IsInstalled = 1 AND p.Status = 'Installation successful' THEN "Installed successfully"
+            WHEN p.IsInstalled = 1 AND p.Status = 'Installation successful pending reboot' THEN "Installed successfully - pending reboot"
+            WHEN p.Status LIKE '%with errors%' OR p.Status LIKE 'Installation failed' THEN "Failed - " || p.Status
+            WHEN p.IsInstalled = 0 THEN "Missing"
+        END AS Status,
+        IsDownloaded,
+        'Update status' AS Operation,
+        p.Title as Title,
+        p.Source as Source
+    FROM @patches p
+    ORDER BY p.Timestamp;
+
+ELSE
+
+    @patches = Patch.List(Source: @source.value, CheckOnline:%global:PatchSuccessCheckOnline%, PatchSpec: "%patchSpec%", TimeoutSecs:%global:PatchSuccessListTimeoutSecs%);
+    @patchSpec = Utilities.SplitLines(Text:"%patchSpec%", Delimiter:",");
+
+    // -- Assume that the patch is "Installed successfully" if the list is not reporting anything
+    SELECT
+        CASE
+            WHEN p.PatchIds IS NULL AND p.PatchGuid IS NULL AND ps.Output NOT LIKE "%-%" THEN ps.Output
+            ELSE p.PatchIds
+        END AS KBArticle,
+        CASE
+            WHEN p.PatchIds IS NULL AND p.PatchGuid IS NULL AND ps.Output LIKE "%-%" THEN ps.Output
+            ELSE COALESCE(p.PatchGuid, p.PatchIds)
+        END AS PatchIdent,
+        CASE
+            WHEN (p.PatchIds IS NULL AND p.PatchGuid IS NULL)
+                OR (p.IsInstalled = 1 AND p.Status = 'Installation successful')
+                THEN "Installed successfully"
+            WHEN p.IsInstalled = 1 AND p.Status = 'Installation successful pending reboot' THEN "Installed successfully - pending reboot"
+            WHEN p.Status LIKE '%with errors%' OR p.Status LIKE 'Installation failed' THEN "Failed - " || p.Status
+            WHEN p.IsInstalled = 0 THEN "Missing"
+        END AS Status,
+        CASE
+            WHEN p.PatchIds IS NULL AND p.PatchGuid IS NULL THEN 0
+            ELSE p.IsDownloaded
+        END AS IsDownloaded,
+        'Update status' AS Operation,
+        p.Title as Title,
+        p.Source as Source
+    FROM @patchSpec ps
+        LEFT JOIN @patches p ON UPPER(ps.Output) = UPPER(p.PatchGuid) OR UPPER(ps.Output) = UPPER(p.PatchIds)
+        WHERE ps.Output <> "Unidentified"
+    ORDER BY p.Timestamp;
+
+ENDIF;
+]]></Payload>
+  <Comments>[Platform=Win,MinRel=4.0]</Comments>
+  <SchemaJson><![CDATA[[
+  {
+    "Name": "KBArticle",
+    "Type": "string",
+    "Length": 16
+  },
+  {
+    "Name": "PatchIdent",
+    "Type": "string",
+    "Length": 128
+  },
+  {
+    "Name": "Status",
+    "Type": "string",
+    "Length": 64
+  },
+  {
+    "Name": "IsDownloaded",
+    "Type": "bool",
+    "Length": 0
+  },
+  {
+    "Name": "Operation",
+    "Type": "string",
+    "Length": 64
+  },
+  {
+    "Name": "Title",
+    "Type": "string",
+    "Length": 200
+  },
+  {
+    "Name": "Source",
+    "Type": "string",
+    "Length": 16
+  }
+]]]></SchemaJson>
+  <ParameterJson><![CDATA[[
+  {
+    "Name": "patchSpec",
+    "Pattern": "%patchSpec%",
+    "DataType": "string",
+    "ControlType": "freeText",
+    "ControlMetadata": "",
+    "Placeholder": "",
+    "DefaultValue": "",
+    "Validation": {
+      "Regex": "^all$|^[0-9a-fA-F-]+(,[0-9a-fA-F-]+)*$",
+      "MaxLength": "",
+      "AllowedValues": []
+    },
+    "HintText": "Comma separated guids and/or KB numbers (without KB prefix) of patches to be listed ",
+    "Source": ""
+  },
+  {
+    "Name": "source",
+    "Pattern": "%source%",
+    "DataType": "string",
+    "ControlType": "valuePicker",
+    "ControlMetadata": "",
+    "Placeholder": "",
+    "DefaultValue": "Default",
+    "Validation": {
+      "Regex": "",
+      "MaxLength": "",
+      "AllowedValues": [
+        "Default",
+        "WSUSR",
+        "WSUSL",
+        "SCCM"
+      ]
+    },
+    "HintText": "Name of the patch spec source, if ommitted the global PatchSuccessSource will be used.",
+    "Source": ""
+  }
+]]]></ParameterJson>
+  <TaskGroups>
+    <TaskGroup Name="Operations\Operating System\Patching and Upgrades" />
+    <TaskGroup Name="Security\Patching" />
+  </TaskGroups>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" /><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1" /><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1" /><DigestValue>vk64ElTekWELcNxu6u2Yf/6Wu+s=</DigestValue></Reference></SignedInfo><SignatureValue>LxjchAbketXDwEXsVcdOOAq8+rRYe7dNwqJY6P5noRw7uZ4IodY5kk9m0ZcAKBRcn9VsYuoKipV9RUZ6QGvLoDFlhf3B6GnscbLtLiLaWnPSvcEjkjdUHehNJltrh8jNlbCZjAzV5sPUOmA2AyKm5D7bNEi4aIwJMUjGRFW0wW07Rg8BRXlJRUJoSE2ywjF52obk/Ke3BfsDeIpZQi+jLDsh2Squ3u1KxKbL5sLitAkCOoBM0fvJzDdHEzAaXBt+kNmhUBevgBEtY9nup2SzwPYuYVkpQYWlVHz2LH/C2UmrTUvFledrrZ2cc3eaLGttenGoUgNsyLOvLAG4VtgF/g==</SignatureValue><KeyInfo><X509Data><X509Certificate>MIIGXTCCBEWgAwIBAgITFgADjVeRAPyviI8WpwAAAAONVzANBgkqhkiG9w0BAQ0FADBBMRUwEwYKCZImiZPyLGQBGRYFbG9jYWwxEjAQBgoJkiaJk/IsZAEZFgIxZTEUMBIGA1UEAxMLMUVQUkRDQVVLMDEwHhcNMjEwMjE5MTAxNTQ1WhcNMjMwMjE5MTAxNTQ1WjAfMR0wGwYDVQQDExQxRSBJbnN0cnVjdGlvbnMgMjAyMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKmbtVyCFzu2kFBYTdZZx47Qm97Cm4ZJEfglziwHCD5mKdkHfnZ4EqLDgjp3Z8gq8RnrEB2IwFAfoyiinWCveiunYSJurAhPjyNRI5r9IYlKspJC40y7yrASOQGariWaOZW2Of81RIBQcxPbLcVGXHmI9l/4rWP3g7p1/2X9GJqHLb8k6SZNMjZOEHLhcLoOPj8gM7XHkJuLsDMHPy5cdHzH8+7LaYB0IO3agGdUrD8hilJAqCcOWKPaRDHST03sXzq6rjLVUCsC029MejLqWY3w8gKRDu/Qh0nF1Ebwnc87WR/SvTbo5O3YbW2O9SFNkviQNdY3rSBN1R2t9jkF6S0CAwEAAaOCAm4wggJqMDwGCSsGAQQBgjcVBwQvMC0GJSsGAQQBgjcVCISA7znOqQKCmZEmh9e3YIT09j5WhM2SNYajp3kCAWQCAQYwEwYDVR0lBAwwCgYIKwYBBQUHAwMwCwYDVR0PBAQDAgeAMBsGCSsGAQQBgjcVCgQOMAwwCgYIKwYBBQUHAwMwHQYDVR0OBBYEFGSiJ5UoZV8xF7dtRjLawtuL58ekMB8GA1UdIwQYMBaAFA8SvSAf5gcaPMkNrQFHHiXloV/QMIHtBgNVHR8EgeUwgeIwgd+ggdyggdmGgbNsZGFwOi8vL0NOPTFFUFJEQ0FVSzAxLENOPTFFUFJEQ0FVSzAxLENOPUNEUCxDTj1QdWJsaWMlMjBLZXklMjBTZXJ2aWNlcyxDTj1TZXJ2aWNlcyxDTj1Db25maWd1cmF0aW9uLERDPTFlLERDPWxvY2FsP2NlcnRpZmljYXRlUmV2b2NhdGlvbkxpc3Q/YmFzZT9vYmplY3RDbGFzcz1jUkxEaXN0cmlidXRpb25Qb2ludIYhaHR0cDovL2NybC4xZS5jb20vMUVQUkRDQVVLMDEuY3JsMIG6BggrBgEFBQcBAQSBrTCBqjCBpwYIKwYBBQUHMAKGgZpsZGFwOi8vL0NOPTFFUFJEQ0FVSzAxLENOPUFJQSxDTj1QdWJsaWMlMjBLZXklMjBTZXJ2aWNlcyxDTj1TZXJ2aWNlcyxDTj1Db25maWd1cmF0aW9uLERDPTFlLERDPWxvY2FsP2NBQ2VydGlmaWNhdGU/YmFzZT9vYmplY3RDbGFzcz1jZXJ0aWZpY2F0aW9uQXV0aG9yaXR5MA0GCSqGSIb3DQEBDQUAA4ICAQBA4Vdau9aX3kKmIQik1+9G3x0SLyiEMb2KHIpx0bgtg6mvaQ1Tg8YK+lTFK4nuF5JuX8oNOk6th7jV6oa5zD+KFPhFZrDALPKMD3alMl7LgKI2iJSNViLvh7aIZwQ8M5d3Fo4H/7wF6DCAYef9Z7yR8qUcwkAMkUyDv4eOkxpSDAUvmNJGZcB4o1Q/Zv2AXJ4Qk8pd74JUN/ajIYvJpfm57srOr+/45U7FzIwywzl38EBkV4o9UiQWl3K+0ErC/aFmq8K4Ct5a4gX5WfjWzSLs8MLcEc3BERMl33E8oU27F711+6q4apQiiHApz5xUeNCKSGqwj4kk+Ky0QkXwEMsK0nDvCs+YZBAnKRRfZPAeg5pC2eYwA1VjYjRV4rAmRxP5PokibEAJkELJsstpcdDOUtuOtLkPRGVhsTBQaQ6KIdyMiyjryii2gkMbtlwWL3kg2A49S/q70DgbHsaKbRfHVblUwcEEpEsJ0NeghnnTlU8R1IzDOEIvlQ/Fkib/pypOF6sRXsdo1uTYf7Fc4eFScmYLisXApCzWVsKrnv270pilQtiM26f+ElCAjT1BxcSUSAejvPRqQZFXbNGvROCG0j1sGYECsH1z+S4iABsVpX4uGzp6AL7jt3OGJF3y5fhVFpAhnNHWiRyNgDG9PAUYSYbEOa6FpEk8SX+mh0rILA==</X509Certificate></X509Data></KeyInfo></Signature></InstructionDefinition>

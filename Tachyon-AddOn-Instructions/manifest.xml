@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Manifest version="1">
+  <Name>DXC Base v8.0.0</Name>
+  <Description>Installs the Tachyon Base of useful instructions, policies and rules.</Description>
+  <Icon>Security.ico</Icon>
+</Manifest>
