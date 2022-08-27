@@ -7,7 +7,7 @@ jobs:
   read-instructions:
     runs-on: windows-latest
     steps:
-      - run: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy bypass -file ./TachyonPipelineLibrary/ReadXML.ps1
+      - run: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe -ExecutionPolicy bypass -file .\TachyonPipelineLibrary\ReadXML.ps1
       - run: git config user.email "babirami@gmail.com"
       - run: git config user.name "abirami"
       - run: git commit -a -m "Commit to main repository"
