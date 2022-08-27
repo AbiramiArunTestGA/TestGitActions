@@ -1,0 +1,91 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<InstructionDefinition Author="1e.com" Name="1E-Exchange-macOS-Cert-FindCert" ReadablePayload="Find system certificate %certname% (macOS)" Description="Search for a system certificate matching the name provided&#xD;&#xA;" InstructionType="Question" InstructionTtlMinutes="60" ResponseTtlMinutes="120" Version="3.2" xmlns="http://schemas.1e.com/Tachyon/InstructionDefinition/1.0">
+  <Payload><![CDATA[// Gets details of a named Mac certificate. Returns nothing (but does not fail) if run on non-macOS or
+// the certificate does not exist.
+//
+// Requires Tachyon v3.2 or later.
+
+@script="
+#!/bin/bash
+# This will have Windows line endings, so we convert to macOS line endings below
+
+CERT=`security find-certificate -p -c \"%certname%\"`
+if [ $? -eq 0 ]; then
+    subject=`echo \"$CERT\" | openssl x509 -subject -noout | cut -d= -f 2-`
+    serial=`echo \"$CERT\" | openssl x509 -serial -noout | cut -d= -f 2-`
+    issuer=`echo \"$CERT\" | openssl x509 -issuer -noout | cut -d= -f 2-`
+    startdate=`echo \"$CERT\" | openssl x509 -startdate -noout | cut -d= -f 2-`
+    enddate=`echo \"$CERT\" | openssl x509 -enddate -noout | cut -d= -f 2-`
+
+    # JSON output
+    echo \"{ \\\"Subject\\\" : \\\"$subject\\\", \\\"SerialNumber\\\" : \\\"$serial\\\", \\\"Issuer\\\" : \\\"$issuer\\\", \\\"StartDate\\\" : \\\"$startdate\\\", \\\"EndDate\\\" : \\\"$enddate\\\" }\"
+else
+    #echo \"Not found\"
+    echo \"{}\"
+fi
+
+exit 0
+";
+
+@hostProperties = Agent.GetSummary();
+@isMacOS = select 1 from @hostProperties where OsType = "MacOS";
+
+// This FOREACH is really just an IF-statement (which is available in v3.3)
+FOREACH @i IN @isMacOS DO
+    // Remove Windows-style <CR> from end of line sequences
+    @unixScript = SELECT replace(Value, X'0D', '') AS Value FROM @script;
+
+    // In v3.3 we would use Scripting.RunText()
+    @command = SELECT "/bin/bash -c '" || Value || "'" AS Value FROM @unixScript;
+    NativeServices.RunCommand(CommandLine: @command, InterpretAsJson: true);
+DONE;]]></Payload>
+  <Comments>[Platform=OSX, MinRel=3.2]</Comments>
+  <SchemaJson><![CDATA[[
+  {
+    "Name": "Subject",
+    "Type": "string",
+    "Length": 256
+  },
+  {
+    "Name": "SerialNumber",
+    "Type": "string",
+    "Length": 50
+  },
+  {
+    "Name": "Issuer",
+    "Type": "string",
+    "Length": 256
+  },
+  {
+    "Name": "StartDate",
+    "Type": "string",
+    "Length": 25
+  },
+  {
+    "Name": "EndDate",
+    "Type": "string",
+    "Length": 25
+  }
+]]]></SchemaJson>
+  <ParameterJson><![CDATA[[
+  {
+    "Name": "certname",
+    "Pattern": "%certname%",
+    "DataType": "string",
+    "ControlType": "freeText",
+    "ControlMetadata": "",
+    "Placeholder": "",
+    "DefaultValue": "",
+    "Validation": {
+      "Regex": "",
+      "MaxLength": "",
+      "AllowedValues": []
+    },
+    "HintText": "Certificate name",
+    "Source": ""
+  }
+]]]></ParameterJson>
+  <TaskGroups>
+    <TaskGroup Name="Security\Certificates" />
+  </TaskGroups>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" /><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1" /><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1" /><DigestValue>AP3776kjsrRQ1gIDaJjn1DuJlpU=</DigestValue></Reference></SignedInfo><SignatureValue>P27e0lMckAy6OET7c7aDjAIPkIDO/+Ja07wKt7UVjpKFLn/+8RQD4HD3Ox6LIw+vddbNKTcsKN+Y6wLG9L0avhJLZtbkNTaCEu+ZBREBCZvL5muD2A/nf/Kbc6I3BdbU7N0qxVR4skI/vqZeYZU1gJSL4GPz3tCjkwg7wo57SeeQtInje3ZH1jHd81QJ1MrB5C/BRrM8jzgyK5SbWzmSLVvElk8IALw+Twr3CRlHSA4fLWhpPmM5QPZa/QYfomK8WGCWAs0yLuqF7ACsTsNYGxUpd+Ydj3nDlyyiEa8FMNCbnz5Oc5/4Er8b7h8zEXTXIb021HVYWBEMtPGO44K/Zg==</SignatureValue><KeyInfo><X509Data><X509Certificate>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</X509Certificate></X509Data></KeyInfo></Signature></InstructionDefinition>

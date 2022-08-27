@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<InstructionDefinition Author="jason.keogh@1e.com-MohithTest" Name="DXC-MWS-SetSNowStore" ReadablePayload="DXC: Set ServiceNow URL to %ServiceNowURL% and Auth to %ServiceNowAuth%" Description="Sets the configuration for Rules and Instructions which connect to ServiceNow. Data is stored on each endpoint in local Storage." InstructionType="Action" InstructionTtlMinutes="10" ResponseTtlMinutes="10" Version="1.1" xmlns="http://schemas.1e.com/Tachyon/InstructionDefinition/1.0">
+  <Payload><![CDATA[@newEntries = select "%ServiceNowURL%" as ServiceNowURL, "%ServiceNowAuth%" as ServiceNowAuth;
+
+@check = Storage.Check(Name:"SNowStore");
+IF NOT (@check)
+    Storage.Set(Name:"SNowStore", Value:@newEntries);
+    select "Created ServiceNow URL and Auth details." as Message;
+ELSE
+    Storage.Set(Name:"SNowStore", Value:@newEntries);
+    select "Updated ServiceNow URL and Auth details." as Message;
+ENDIF;]]></Payload>
+  <SchemaJson><![CDATA[[
+  {
+    "Name": "Message",
+    "Type": "string",
+    "Length": 128
+  }
+]]]></SchemaJson>
+  <ParameterJson><![CDATA[[
+  {
+    "Name": "ServiceNowURL",
+    "Pattern": "%ServiceNowURL%",
+    "DataType": "string",
+    "ControlType": "freeText",
+    "ControlMetadata": "",
+    "Placeholder": "",
+    "DefaultValue": "",
+    "Validation": {
+      "Regex": "",
+      "MaxLength": "",
+      "AllowedValues": []
+    },
+    "HintText": "",
+    "Source": ""
+  },
+  {
+    "Name": "ServiceNowAuth",
+    "Pattern": "%ServiceNowAuth%",
+    "DataType": "string",
+    "ControlType": "freeText",
+    "ControlMetadata": "",
+    "Placeholder": "",
+    "DefaultValue": "",
+    "Validation": {
+      "Regex": "",
+      "MaxLength": "",
+      "AllowedValues": []
+    },
+    "HintText": "Must be base64 encoded user:password",
+    "Source": ""
+  }
+]]]></ParameterJson>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" /><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1" /><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1" /><DigestValue>DJ05mvDFB7MuHMusf/oPldsHH+0=</DigestValue></Reference></SignedInfo><SignatureValue>DOglVj1GR3c81CKt6Vk5Tdckxc9Kw8Z3Y7nfl+2AXcKjWJZhoI5Ta4IxBLge44aCBV7JJZ2ExgYuHookuIuNQQ4H69ITsCIoSF/IAB+wzzvwX0TxP4kyucPK72YWCTm/pAbXZ5l9+rdaHlbDJ4Duf/FbWlE1mkx0KjDoo5eUvI+R1DmIBDeXatCYmvg3vsh/NcotuCI4+F/5uT46jW5uUYy/VX/zq7O6tFbIEXmY5cfKuTLl0Z0944qhi6ki30EsgtIiXLghI61wRmOcF102wTSJisF86CrqOGXXGDqvJV1/ULcoglyJkdzVnWquVexK55r58gHSaNs+MzWows892Q==</SignatureValue><KeyInfo><X509Data><X509Certificate>MIIE5TCCA82gAwIBAgIQFdCZyIv/TpdSHTWZDiG0FzANBgkqhkiG9w0BAQsFADB/MQswCQYDVQQGEwJVUzEdMBsGA1UEChMUU3ltYW50ZWMgQ29ycG9yYXRpb24xHzAdBgNVBAsTFlN5bWFudGVjIFRydXN0IE5ldHdvcmsxMDAuBgNVBAMTJ1N5bWFudGVjIENsYXNzIDMgU0hBMjU2IENvZGUgU2lnbmluZyBDQTAeFw0yMDA5MDcwMDAwMDBaFw0yMzA5MDgyMzU5NTlaMIGbMQswCQYDVQQGEwJVUzERMA8GA1UECAwIVmlyZ2luaWExDzANBgNVBAcMBlR5c29uczEkMCIGA1UECgwbRFhDIFRFQ0hOT0xPR1kgU0VSVklDRVMgTExDMRwwGgYDVQQLDBNQcm9kdWN0IEVuZ2luZWVyaW5nMSQwIgYDVQQDDBtEWEMgVEVDSE5PTE9HWSBTRVJWSUNFUyBMTEMwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCz/nvlORDau0M3JpKU5GlpFeoYtup1OIHlE1hkaRkPKNHxaEcKz7rqCkudt6ejgb7S9Zar2UfAahEHneGR7oaEk4eWIV77vkhkd8xcTPgIUTFbRjhUsSZq7JzNRLG0llz6jebCLjlAe8KV8j094xfPyul6862x/RwuKtAs1lMmpdV/vEp3NmpB6xCfvPWfvCBR3nYHFlORXHpTJkO4+1O5p1fMhvyPk0DMnOnf6yFx44qogtOFaw3hQ1ARo4JMvt/jihoyldKSGy1OPe7bz9k5bU9yZfOfOL07K1se/5gvZQThNyNdV5zvAhy0a672Krv8WUDADHGzG58ERjWEb4F9AgMBAAGjggE+MIIBOjAJBgNVHRMEAjAAMA4GA1UdDwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDAzBhBgNVHSAEWjBYMFYGBmeBDAEEATBMMCMGCCsGAQUFBwIBFhdodHRwczovL2Quc3ltY2IuY29tL2NwczAlBggrBgEFBQcCAjAZDBdodHRwczovL2Quc3ltY2IuY29tL3JwYTAfBgNVHSMEGDAWgBSWO1PweTOXr32D7y4rzMq3hh5yZjArBgNVHR8EJDAiMCCgHqAchhpodHRwOi8vc3Yuc3ltY2IuY29tL3N2LmNybDBXBggrBgEFBQcBAQRLMEkwHwYIKwYBBQUHMAGGE2h0dHA6Ly9zdi5zeW1jZC5jb20wJgYIKwYBBQUHMAKGGmh0dHA6Ly9zdi5zeW1jYi5jb20vc3YuY3J0MA0GCSqGSIb3DQEBCwUAA4IBAQA69VzqOezJ/mww5QZ9rMLbRbTAcD3h8c9s/pUapzL/15AGgGuUG0gepbAL6MkC39m9yoOVuvXLCAIbJKPNYTFAQyLiGswV0JQy5mYKjcn6fhVeIQvNlLPyEf7IrLA4lQV13k27hh/zk6++UjThOwUqFFSm8Kdp3cRRyTncTpV1AHDR0R5kiGLrGOj/koSKA/b1js3t9aHDZn1cc9sIyWMYKxCdfstieGFAy3tAY200KhaZCZU0Bcf+hnPn4W0jamfuFZRKuNDUSoW2gejro42QUSzqIE7Y6xpZO+Eqw9w2CY9w2qj5luQ7lHBcJadMKG1upwChensuBqsE9vGavTFV</X509Certificate></X509Data></KeyInfo></Signature></InstructionDefinition>

@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<InstructionDefinition Name="1E-Explorer-macOS-Cert-ListSystemCerts" ReadablePayload="List system certificates (macOS)" Description="List system certificates (macOS)" InstructionType="Question" InstructionTtlMinutes="60" ResponseTtlMinutes="120" Version="10" xmlns="http://schemas.1e.com/Tachyon/InstructionDefinition/1.0" Author="1E">
+  <Payload><![CDATA[// Requires Tachyon v3.2 or later.
+@script="
+#!/bin/bash
+# This will have Windows line endings, which we convert to macOS line endings below.
+
+#SYSTEM_KEYCHAIN=`security default-keychain -d system | sed \"s/\\\"//g\"`
+SYSTEM_KEYCHAIN=/Library/Keychains/System.keychain
+
+# Iterate through the System keychain
+security find-certificate -a $SYSTEM_KEYCHAIN | awk -F\"\\\"\" \"/alis/{print \\$4}\" | sort
+";
+
+@hostProperties = Agent.GetSummary();
+@isMacOS = select 1 from @hostProperties where OsType = "MacOS";
+
+// This FOREACH is really just an IF-statement (which is available in v3.3)
+FOREACH @i IN @isMacOS DO
+  // Remove Windows style <CR> from end of line sequences.
+  @unixScript = SELECT replace(Value, X'0D', '') AS Value FROM @script;
+
+  // In v3.3 we would use Scripting.RunText()
+  @command = SELECT "/bin/bash -c '" || Value || "'" AS Value FROM @unixScript;
+  @certs = NativeServices.RunCommand(CommandLine: @command);
+
+  Utilities.SplitLines(Text: @certs.Output);
+DONE;]]></Payload>
+  <Comments>[Platform=OSX, MinRel=3.2]</Comments>
+  <SchemaJson><![CDATA[[
+  {
+    "Name": "Output",
+    "Type": "string",
+    "Length": 1024
+  }
+]]]></SchemaJson>
+  <TaskGroups>
+    <TaskGroup Name="Security\Certificates" />
+  </TaskGroups>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315" /><SignatureMethod Algorithm="http://www.w3.org/2000/09/xmldsig#rsa-sha1" /><Reference URI=""><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2000/09/xmldsig#sha1" /><DigestValue>em5VAnEHid0SL8PrA01gwTBJUtA=</DigestValue></Reference></SignedInfo><SignatureValue>fWIb3Xa+1HnKDgKg2zTfyVV3O2A2Q8xJMgJGVCpOHyGIqVFopbrBX2AWC6FyqNercTUfUBpqPHv8OESMA0vkkGgvMSdz5TxfObDMbcCgzm/zu0/hhxI6weXXU86QiuI4EPSr6qTs7QveVelSGS17J1mlA53aikr1YIXEnAckWqKM5jD8i2w2f9tJMCnqLg4yWZUFw7lIrYa8ca5hra1sbKl2gaWeSf1D0/kTK8S6ERbYsGLp3QL1Q5LlVv9xgqXdI9AkJ0+DtvoSKSoiMpsRmGcSx6trPAToxmg8fmZtmmM0qCdlozDJ1IG/WETAgmUrRcWtjcnGjEFW5ZvAJcwbnA==</SignatureValue><KeyInfo><X509Data><X509Certificate>MIIGXTCCBEWgAwIBAgITFgADjVeRAPyviI8WpwAAAAONVzANBgkqhkiG9w0BAQ0FADBBMRUwEwYKCZImiZPyLGQBGRYFbG9jYWwxEjAQBgoJkiaJk/IsZAEZFgIxZTEUMBIGA1UEAxMLMUVQUkRDQVVLMDEwHhcNMjEwMjE5MTAxNTQ1WhcNMjMwMjE5MTAxNTQ1WjAfMR0wGwYDVQQDExQxRSBJbnN0cnVjdGlvbnMgMjAyMTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEBAKmbtVyCFzu2kFBYTdZZx47Qm97Cm4ZJEfglziwHCD5mKdkHfnZ4EqLDgjp3Z8gq8RnrEB2IwFAfoyiinWCveiunYSJurAhPjyNRI5r9IYlKspJC40y7yrASOQGariWaOZW2Of81RIBQcxPbLcVGXHmI9l/4rWP3g7p1/2X9GJqHLb8k6SZNMjZOEHLhcLoOPj8gM7XHkJuLsDMHPy5cdHzH8+7LaYB0IO3agGdUrD8hilJAqCcOWKPaRDHST03sXzq6rjLVUCsC029MejLqWY3w8gKRDu/Qh0nF1Ebwnc87WR/SvTbo5O3YbW2O9SFNkviQNdY3rSBN1R2t9jkF6S0CAwEAAaOCAm4wggJqMDwGCSsGAQQBgjcVBwQvMC0GJSsGAQQBgjcVCISA7znOqQKCmZEmh9e3YIT09j5WhM2SNYajp3kCAWQCAQYwEwYDVR0lBAwwCgYIKwYBBQUHAwMwCwYDVR0PBAQDAgeAMBsGCSsGAQQBgjcVCgQOMAwwCgYIKwYBBQUHAwMwHQYDVR0OBBYEFGSiJ5UoZV8xF7dtRjLawtuL58ekMB8GA1UdIwQYMBaAFA8SvSAf5gcaPMkNrQFHHiXloV/QMIHtBgNVHR8EgeUwgeIwgd+ggdyggdmGgbNsZGFwOi8vL0NOPTFFUFJEQ0FVSzAxLENOPTFFUFJEQ0FVSzAxLENOPUNEUCxDTj1QdWJsaWMlMjBLZXklMjBTZXJ2aWNlcyxDTj1TZXJ2aWNlcyxDTj1Db25maWd1cmF0aW9uLERDPTFlLERDPWxvY2FsP2NlcnRpZmljYXRlUmV2b2NhdGlvbkxpc3Q/YmFzZT9vYmplY3RDbGFzcz1jUkxEaXN0cmlidXRpb25Qb2ludIYhaHR0cDovL2NybC4xZS5jb20vMUVQUkRDQVVLMDEuY3JsMIG6BggrBgEFBQcBAQSBrTCBqjCBpwYIKwYBBQUHMAKGgZpsZGFwOi8vL0NOPTFFUFJEQ0FVSzAxLENOPUFJQSxDTj1QdWJsaWMlMjBLZXklMjBTZXJ2aWNlcyxDTj1TZXJ2aWNlcyxDTj1Db25maWd1cmF0aW9uLERDPTFlLERDPWxvY2FsP2NBQ2VydGlmaWNhdGU/YmFzZT9vYmplY3RDbGFzcz1jZXJ0aWZpY2F0aW9uQXV0aG9yaXR5MA0GCSqGSIb3DQEBDQUAA4ICAQBA4Vdau9aX3kKmIQik1+9G3x0SLyiEMb2KHIpx0bgtg6mvaQ1Tg8YK+lTFK4nuF5JuX8oNOk6th7jV6oa5zD+KFPhFZrDALPKMD3alMl7LgKI2iJSNViLvh7aIZwQ8M5d3Fo4H/7wF6DCAYef9Z7yR8qUcwkAMkUyDv4eOkxpSDAUvmNJGZcB4o1Q/Zv2AXJ4Qk8pd74JUN/ajIYvJpfm57srOr+/45U7FzIwywzl38EBkV4o9UiQWl3K+0ErC/aFmq8K4Ct5a4gX5WfjWzSLs8MLcEc3BERMl33E8oU27F711+6q4apQiiHApz5xUeNCKSGqwj4kk+Ky0QkXwEMsK0nDvCs+YZBAnKRRfZPAeg5pC2eYwA1VjYjRV4rAmRxP5PokibEAJkELJsstpcdDOUtuOtLkPRGVhsTBQaQ6KIdyMiyjryii2gkMbtlwWL3kg2A49S/q70DgbHsaKbRfHVblUwcEEpEsJ0NeghnnTlU8R1IzDOEIvlQ/Fkib/pypOF6sRXsdo1uTYf7Fc4eFScmYLisXApCzWVsKrnv270pilQtiM26f+ElCAjT1BxcSUSAejvPRqQZFXbNGvROCG0j1sGYECsH1z+S4iABsVpX4uGzp6AL7jt3OGJF3y5fhVFpAhnNHWiRyNgDG9PAUYSYbEOa6FpEk8SX+mh0rILA==</X509Certificate></X509Data></KeyInfo></Signature></InstructionDefinition>
